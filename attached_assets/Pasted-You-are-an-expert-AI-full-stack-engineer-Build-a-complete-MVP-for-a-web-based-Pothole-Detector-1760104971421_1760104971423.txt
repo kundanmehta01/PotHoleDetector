@@ -1,0 +1,94 @@
+You are an expert AI + full-stack engineer.
+Build a complete MVP for a **web-based Pothole Detector** app that detects potholes in real time from a phone or laptop camera.
+
+---
+
+### 🧩 GOAL
+Create a working **web application** (not a mobile app) with:
+- A **FastAPI backend** that loads a **pre-trained pothole detection model** (e.g. YOLOv8 trained on a pothole dataset from Roboflow or Kaggle).
+- A **browser-based frontend** that:
+  - Accesses the device camera (phone or laptop) using `getUserMedia()`.
+  - Streams frames to the FastAPI backend (`/detect` endpoint).
+  - Displays the live video feed with bounding boxes drawn over detected potholes.
+
+---
+
+### ⚙️ REQUIREMENTS
+
+#### BACKEND (FastAPI)
+- Load a **public pre-trained model** for pothole detection, such as:
+  - `ultralytics/yolov8n` fine-tuned on a public pothole dataset.
+  - or use model weights hosted on Hugging Face or Roboflow.
+- Implement the `/detect` endpoint:
+  - Accepts a frame via POST (as base64 image or multipart form-data).
+  - Runs inference using the model.
+  - Returns detection results as JSON:
+    ```json
+    {
+      "detections": [
+        {"label": "pothole", "confidence": 0.89, "bbox": [x1, y1, x2, y2]},
+        ...
+      ]
+    }
+    ```
+- Use `uvicorn` to serve the app.
+- Add **CORS middleware** for browser access.
+
+#### FRONTEND (Web UI)
+- Use **HTML + JavaScript** (no frameworks needed, keep it simple).
+- Use the browser’s **`navigator.mediaDevices.getUserMedia()`** to capture live video.
+- Every few frames (e.g. 3 fps), send the frame as a base64 image to the FastAPI `/detect` endpoint.
+- Display the annotated stream by:
+  - Drawing bounding boxes on a `<canvas>` overlay.
+  - Showing confidence and labels.
+
+#### OPTIONAL FEATURES
+- Toggle between **laptop camera** and **phone camera** (use same web URL — the browser handles it).
+- Button to start/stop detection.
+- Responsive layout for mobile/laptop screens.
+- Display real-time FPS and detection confidence.
+
+---
+
+### 📦 TECH STACK
+- **Backend:** FastAPI, Ultralytics YOLOv8 (pre-trained model), OpenCV, Pydantic, Uvicorn.
+- **Frontend:** Vanilla HTML, CSS, JS, Canvas API.
+- **Dependencies:** `fastapi`, `uvicorn`, `ultralytics`, `opencv-python`, `numpy`.
+
+---
+
+### 🚀 DELIVERABLES
+1. **`main.py`** – FastAPI backend serving `/detect` API.
+2. **`index.html`** – Frontend page with live camera preview and detection overlay.
+3. **`static/script.js`** – Handles camera capture and API communication.
+4. **`requirements.txt`** – Dependencies.
+5. Instructions to:
+   - Run locally (`uvicorn main:app --reload`).
+   - Open `http://localhost:8000` on a laptop or phone.
+   - Select camera and start live detection.
+
+---
+
+### 💡 MVP BEHAVIOR
+- Open the site → allow camera access → see live video.
+- The backend detects potholes using the pre-trained model.
+- Boxes + confidence drawn in real-time.
+- Works on any device with a browser (laptop/phone/tablet).
+
+---
+
+### 🧱 FUTURE EXPANSIONS
+- Add GPS tagging of detected potholes.
+- Store detection data in SQLite/Postgres.
+- Add heatmap visualization of pothole density on a map (e.g., using Leaflet.js).
+- Support multi-user backend.
+
+---
+
+### 🧰 OUTPUT EXPECTATION
+Generate:
+- All backend and frontend code (main.py, index.html, script.js).
+- Clear explanation for setup and running.
+- Include a note on which pre-trained model is used (and how to change it if needed).
+- Code should be modular, well-commented, and production-ready for local deployment.
+
