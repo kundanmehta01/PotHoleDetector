@@ -1,6 +1,6 @@
 """
 FastAPI Backend for Pothole Detection
-This server provides an endpoint for real-time pothole detection using enhanced computer vision.
+This server provides an endpoint for real-time pothole detection using optimized computer vision.
 """
 
 import base64
@@ -8,7 +8,7 @@ import io
 import logging
 import random
 from typing import List, Dict
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -40,129 +40,172 @@ async def load_model():
     """Initialize detection system"""
     global model_loaded
     try:
-        logger.info("Initializing pothole detection system...")
-        logger.info("NOTE: Using enhanced detection for MVP demo")
+        logger.info("Initializing optimized pothole detection system...")
         model_loaded = True
         logger.info("Detection system ready!")
     except Exception as e:
         logger.error(f"Error initializing detection: {e}")
         raise
 
-def detect_with_enhanced_algorithm(img_array):
+def detect_road_region(img_array):
     """
-    Enhanced pothole detection using multiple computer vision techniques
+    Detect road region in the image using color and texture analysis
     """
+    # Convert to HSV for better color segmentation
+    hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+    
+    # Define range for typical road colors (grays, browns, blacks)
+    # These values might need adjustment based on lighting conditions
+    lower_road = np.array([0, 0, 30])
+    upper_road = np.array([180, 50, 200])
+    
+    # Create mask for road-like colors
+    road_mask = cv2.inRange(hsv, lower_road, upper_road)
+    
+    # Apply morphological operations to clean up the mask
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    road_mask = cv2.morphologyEx(road_mask, cv2.MORPH_CLOSE, kernel)
+    road_mask = cv2.morphologyEx(road_mask, cv2.MORPH_OPEN, kernel)
+    
+    # Find the largest connected component (likely the road)
+    contours, _ = cv2.findContours(road_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if not contours:
+        return None
+    
+    # Find the largest contour by area
+    largest_contour = max(contours, key=cv2.contourArea)
+    
+    # Only consider it a road if it's large enough
+    if cv2.contourArea(largest_contour) < img_array.shape[0] * img_array.shape[1] * 0.3:
+        return None
+    
+    # Get bounding rectangle of the road region
+    x, y, w, h = cv2.boundingRect(largest_contour)
+    
+    # Return the road region coordinates
+    return (x, y, x + w, y + h)
+
+def detect_with_optimized_algorithm(img_array, road_detection=False):
+    """
+    Optimized pothole detection using efficient computer vision techniques
+    """
+    # If road detection is enabled, first identify road region
+    road_region = None
+    if road_detection:
+        road_region = detect_road_region(img_array)
+        # If no road is detected, return empty detections
+        if road_region is None:
+            return []
+    
+    # Resize image for faster processing while maintaining aspect ratio
+    height, width = img_array.shape[:2]
+    max_dimension = 640  # Reduce processing load
+    if max(height, width) > max_dimension:
+        scale = max_dimension / max(height, width)
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        img_array = cv2.resize(img_array, (new_width, new_height))
+        
+        # Scale road region coordinates if they exist
+        if road_region:
+            rx1, ry1, rx2, ry2 = road_region
+            scale_x = new_width / width
+            scale_y = new_height / height
+            road_region = (
+                int(rx1 * scale_x), 
+                int(ry1 * scale_y), 
+                int(rx2 * scale_x), 
+                int(ry2 * scale_y)
+            )
+    
     # Convert to grayscale
     gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     
-    # Apply CLAHE to improve contrast
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    # Apply CLAHE to improve contrast (faster version)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4,4))
     enhanced = clahe.apply(gray)
     
-    # Apply bilateral filter to reduce noise while preserving edges
-    filtered = cv2.bilateralFilter(enhanced, 9, 75, 75)
+    # Apply Gaussian blur for noise reduction (faster than bilateral)
+    blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
     
-    # Use adaptive threshold for better edge detection in varying lighting
-    thresh = cv2.adaptiveThreshold(filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                   cv2.THRESH_BINARY_INV, 11, 2)
+    # Edge detection with optimized parameters
+    edges = cv2.Canny(blurred, 50, 150)
     
-    # Morphological operations to clean up the image
+    # If road region is specified, mask edges outside this region
+    if road_region and road_detection:
+        rx1, ry1, rx2, ry2 = road_region
+        # Create mask for road region
+        mask = np.zeros_like(edges)
+        mask[ry1:ry2, rx1:rx2] = 255
+        # Apply mask to edges
+        edges = cv2.bitwise_and(edges, edges, mask=mask)
+    
+    # Morphological operations to clean up edges
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
+    cleaned = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
     
     # Find contours
     contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     detections = []
-    height, width = img_array.shape[:2]
     
-    # Filter and convert contours to bounding boxes with stricter criteria
+    # Filter and convert contours to bounding boxes with balanced criteria
     for contour in contours:
         area = cv2.contourArea(contour)
         
-        # More strict area filtering to avoid small detections
-        if area < 800 or area > (width * height * 0.4):
+        # Adjusted area filtering for better balance
+        if area < 400 or area > (img_array.shape[1] * img_array.shape[0] * 0.3):
             continue
             
         x, y, w, h = cv2.boundingRect(contour)
         
-        # Calculate aspect ratio and solidity for better shape filtering
-        aspect_ratio = float(w) / h if h > 0 else 0
-        hull = cv2.convexHull(contour)
-        hull_area = cv2.contourArea(hull)
-        solidity = float(area) / hull_area if hull_area > 0 else 0
-        
-        # Filter based on shape characteristics typical of potholes
-        # Potholes are typically more circular/elliptical with moderate aspect ratios
-        if aspect_ratio < 0.4 or aspect_ratio > 2.5:
-            continue
-            
-        # Potholes tend to have lower solidity (not perfectly filled shapes)
-        # But not too low as that would exclude valid potholes
-        if solidity < 0.3 or solidity > 0.9:
-            continue
-        
-        # Size filtering - potholes have a minimum size
-        if w < 40 or h < 40:
-            continue
-        
-        # Position filtering - potholes are typically on road surfaces
-        # Exclude top and bottom portions of image
-        if y < height * 0.2 or y > height * 0.8:
-            continue
-            
-        # Additional filtering based on position in middle region
-        middle_y = height * 0.5
-        if abs(y - middle_y) > height * 0.3:
-            continue
-        
-        # Calculate circularity to identify more circular shapes (potholes)
-        perimeter = cv2.arcLength(contour, True)
-        if perimeter == 0:
-            continue
-        circularity = 4 * np.pi * area / (perimeter * perimeter)
-        
-        # Potholes have moderate circularity
-        if circularity < 0.2 or circularity > 0.9:
-            continue
-        
-        # Calculate confidence based on multiple factors with stricter scoring
-        shape_score = 1 - abs(1 - aspect_ratio) if 0.5 <= aspect_ratio <= 2.0 else 0.3
-        size_score = min(area / 5000, 1.0)
-        position_score = 1 - abs(0.5 - (y / height))  # Prefer middle of image
-        solidity_score = 1 - abs(0.6 - solidity)  # Prefer solidity around 0.6
-        circularity_score = circularity if 0.3 <= circularity <= 0.8 else 0.2
-        
-        # Weighted confidence calculation
-        confidence = (shape_score * 0.25 + size_score * 0.2 + 
-                     position_score * 0.2 + solidity_score * 0.2 +
-                     circularity_score * 0.15)
-        
-        # Apply randomness factor but with lower variance
-        confidence = confidence * random.uniform(0.9, 1.1)
-        
-        # Higher confidence threshold to reduce false positives
-        if confidence < 0.6:
-            continue
-        
-        # Additional check for texture - potholes often have varied intensity
-        roi = gray[y:y+h, x:x+w]
-        if roi.size > 0:
-            std_dev = np.std(roi)
-            # Potholes typically have texture variation
-            if std_dev < 20:  # Too uniform, likely not a pothole
+        # If road detection is enabled, check if pothole is within road region
+        if road_region and road_detection:
+            rx1, ry1, rx2, ry2 = road_region
+            # Check if bounding box is within road region
+            if x < rx1 or y < ry1 or (x + w) > rx2 or (y + h) > ry2:
                 continue
+        
+        # Calculate aspect ratio
+        aspect_ratio = float(w) / h if h > 0 else 0
+        
+        # Filter based on shape characteristics with more lenient criteria
+        if aspect_ratio < 0.3 or aspect_ratio > 4.0:
+            continue
+        
+        # Size filtering
+        if w < 30 or h < 30:
+            continue
+        
+        # Position filtering - focus on likely road area
+        if y < img_array.shape[0] * 0.1 or y > img_array.shape[0] * 0.9:
+            continue
+        
+        # Calculate confidence with balanced scoring
+        shape_score = 1 - abs(1 - aspect_ratio) if aspect_ratio <= 2 else 0.5
+        size_score = min(area / 2000, 1.0)
+        position_score = (y / img_array.shape[0])  # Lower in image = higher score
+        
+        confidence = (shape_score * 0.4 + size_score * 0.3 + position_score * 0.3) * random.uniform(0.8, 1.0)
+        
+        # Lowered threshold to detect more potholes
+        if confidence < 0.4:
+            continue
+        
+        # Scale coordinates back to original image size
+        scale_x = width / img_array.shape[1]
+        scale_y = height / img_array.shape[0]
         
         detections.append({
             "label": "pothole",
-            "confidence": round(min(confidence, 1.0), 2),
-            "bbox": [x, y, x + w, y + h]
+            "confidence": round(confidence, 2),
+            "bbox": [int(x * scale_x), int(y * scale_y), int((x + w) * scale_x), int((y + h) * scale_y)]
         })
     
     # Return top detections sorted by confidence
     detections.sort(key=lambda x: x['confidence'], reverse=True)
-    return detections[:5]
+    return detections[:8]  # Increased from 5 to 8 to detect more potholes
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -182,12 +225,16 @@ async def health_check():
     }
 
 @app.post("/detect")
-async def detect_potholes(file: UploadFile = File(...)) -> Dict:
+async def detect_potholes(
+    file: UploadFile = File(...),
+    road_detection: bool = Query(False, description="Enable road region detection before pothole detection")
+) -> Dict:
     """
     Detect potholes in an uploaded image
     
     Args:
         file: Image file (JPEG/PNG) or base64 encoded image
+        road_detection: Enable road region detection before pothole detection
         
     Returns:
         JSON with detection results including bounding boxes and confidence scores
@@ -217,12 +264,13 @@ async def detect_potholes(file: UploadFile = File(...)) -> Dict:
         elif img_array.shape[2] == 4:  # RGBA
             img_array = cv2.cvtColor(img_array, cv2.COLOR_RGBA2RGB)
         
-        # Run enhanced detection
-        detections = detect_with_enhanced_algorithm(img_array)
+        # Run optimized detection
+        detections = detect_with_optimized_algorithm(img_array, road_detection)
         
         return {
             "detections": detections,
             "count": len(detections),
+            "road_detection_enabled": road_detection,
             "image_size": {"width": image.width, "height": image.height}
         }
         
@@ -237,8 +285,9 @@ async def model_info():
         raise HTTPException(status_code=503, detail="Detection system not initialized")
     
     return {
-        "detection_method": "Enhanced Computer Vision Algorithm",
-        "note": "Using advanced shape analysis, texture detection, and multiple filtering criteria for better accuracy",
+        "detection_method": "Optimized Computer Vision Algorithm",
+        "road_detection": "Available - Detects road regions before pothole detection",
+        "note": "Using efficient image processing techniques for real-time performance",
         "recommendation": "For production use, train a custom model on pothole datasets from Roboflow or Kaggle"
     }
 

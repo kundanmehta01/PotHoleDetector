@@ -14,6 +14,8 @@ let totalConfidence = 0;
 let detectionCount = 0;
 let lastFrameTime = 0;
 let frameTimes = [];
+let lastDetectionTime = 0;
+let roadDetectionEnabled = false;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -28,6 +30,15 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Add animation to stats cards on load
     animateStats();
+    
+    // Add event listener for road detection toggle
+    document.getElementById('roadDetectionToggle').addEventListener('change', function() {
+        roadDetectionEnabled = this.checked;
+        if (isDetecting) {
+            const mode = roadDetectionEnabled ? 'road detection' : 'normal';
+            updateStatus(`<i class="fas fa-sync fa-spin"></i> Detection active (${mode} mode)`, 'success');
+        }
+    });
 });
 
 /**
@@ -137,13 +148,15 @@ function toggleDetection() {
     const detectBtn = document.getElementById('detectBtn');
     
     if (isDetecting) {
+        const mode = roadDetectionEnabled ? 'road detection' : 'normal';
         detectBtn.innerHTML = '<i class="fas fa-stop-circle"></i> Stop Detection';
         detectBtn.classList.remove('btn-secondary');
         detectBtn.classList.add('btn-danger');
-        updateStatus('<i class="fas fa-sync fa-spin"></i> Detection active - Processing frames...', 'success');
+        updateStatus(`<i class="fas fa-sync fa-spin"></i> Detection active (${mode} mode)`, 'success');
         
-        // Start detection loop (3 FPS for better accuracy)
-        detectionInterval = setInterval(captureAndDetect, 333);
+        // Start detection loop (5 FPS for better performance)
+        lastDetectionTime = 0;
+        detectionInterval = setInterval(captureAndDetect, 200);
         
         // Start FPS counter
         fpsInterval = setInterval(updateFPS, 1000);
@@ -175,9 +188,15 @@ function toggleDetection() {
 async function captureAndDetect() {
     if (!isCameraActive || !isDetecting) return;
     
+    const now = Date.now();
+    // Limit detection to at most 5 times per second
+    if (lastDetectionTime && (now - lastDetectionTime) < 200) {
+        return;
+    }
+    lastDetectionTime = now;
+    
     try {
         // Record frame time for FPS calculation
-        const now = performance.now();
         if (lastFrameTime) {
             frameTimes.push(now - lastFrameTime);
             if (frameTimes.length > 10) frameTimes.shift(); // Keep last 10 frame times
@@ -191,35 +210,54 @@ async function captureAndDetect() {
         const tempCtx = tempCanvas.getContext('2d');
         tempCtx.drawImage(video, 0, 0);
         
-        // Convert to blob
+        // Convert to blob with lower quality for faster transfer
         tempCanvas.toBlob(async (blob) => {
             const formData = new FormData();
             formData.append('file', blob, 'frame.jpg');
             
-            // Send to backend
-            const response = await fetch('/detect', {
-                method: 'POST',
-                body: formData
-            });
+            // Add road detection parameter
+            const roadDetectionParam = roadDetectionEnabled ? '?road_detection=true' : '';
             
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+            // Send to backend with timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+            
+            try {
+                const response = await fetch(`/detect${roadDetectionParam}`, {
+                    method: 'POST',
+                    body: formData,
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Draw detections with enhanced visualization
+                drawEnhancedDetections(data.detections);
+                
+                // Update stats
+                frameCount++;
+                if (data.count > 0) {
+                    detectionCount = data.count;
+                    const avgConf = data.detections.reduce((sum, det) => sum + det.confidence, 0) / data.count;
+                    totalConfidence = avgConf;
+                }
+                
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.warn('Detection request timed out');
+                    updateStatus('<i class="fas fa-exclamation-circle"></i> Detection timeout - trying again...', 'warning');
+                } else {
+                    throw error;
+                }
             }
             
-            const data = await response.json();
-            
-            // Draw detections with enhanced visualization
-            drawEnhancedDetections(data.detections);
-            
-            // Update stats
-            frameCount++;
-            if (data.count > 0) {
-                detectionCount = data.count;
-                const avgConf = data.detections.reduce((sum, det) => sum + det.confidence, 0) / data.count;
-                totalConfidence = avgConf;
-            }
-            
-        }, 'image/jpeg', 0.8);
+        }, 'image/jpeg', 0.7); // Reduced quality for faster transfer
         
     } catch (error) {
         console.error('Detection error:', error);
@@ -390,6 +428,7 @@ function resetStats() {
     totalConfidence = 0;
     frameTimes = [];
     lastFrameTime = 0;
+    lastDetectionTime = 0;
     
     document.getElementById('detectionCount').textContent = '0';
     document.getElementById('fps').innerHTML = '0 <span style="font-size: 1rem;">FPS</span>';
