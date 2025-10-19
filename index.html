@@ -4,7 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pothole Detector - Live Camera Detection</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        :root {
+            --primary: #4361ee;
+            --secondary: #3f37c9;
+            --accent: #4cc9f0;
+            --danger: #f72585;
+            --success: #4ade80;
+            --warning: #facc15;
+            --dark: #1e293b;
+            --light: #f8fafc;
+            --gray: #94a3b8;
+            --card-bg: rgba(255, 255, 255, 0.85);
+            --shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -12,53 +27,75 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
             padding: 20px;
-            color: #333;
+            color: var(--dark);
+            line-height: 1.6;
         }
 
         .container {
-            background: white;
+            background: var(--card-bg);
             border-radius: 20px;
             padding: 30px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            box-shadow: var(--shadow);
             max-width: 1200px;
             width: 100%;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            margin-top: 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
         }
 
         h1 {
-            text-align: center;
-            color: #667eea;
+            color: var(--primary);
             margin-bottom: 10px;
-            font-size: 2.5em;
+            font-size: 2.8rem;
+            font-weight: 800;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .subtitle {
-            text-align: center;
-            color: #666;
-            margin-bottom: 30px;
-            font-size: 1.1em;
+            color: var(--gray);
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+            font-weight: 500;
+        }
+
+        .tagline {
+            color: var(--secondary);
+            font-weight: 600;
+            font-size: 1.1rem;
         }
 
         .video-container {
             position: relative;
             width: 100%;
-            max-width: 800px;
-            margin: 0 auto 20px;
+            max-width: 900px;
+            margin: 0 auto 25px;
             background: #000;
-            border-radius: 10px;
+            border-radius: 16px;
             overflow: hidden;
+            box-shadow: var(--shadow);
+            aspect-ratio: 16/9;
         }
 
         #video {
             width: 100%;
-            height: auto;
+            height: 100%;
             display: block;
+            object-fit: cover;
         }
 
         #canvas {
@@ -75,123 +112,150 @@
             gap: 15px;
             justify-content: center;
             flex-wrap: wrap;
-            margin-bottom: 20px;
+            margin-bottom: 25px;
         }
 
         button {
-            padding: 12px 30px;
+            padding: 14px 28px;
             font-size: 16px;
             border: none;
-            border-radius: 25px;
+            border-radius: 12px;
             cursor: pointer;
             transition: all 0.3s ease;
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: var(--shadow);
         }
 
         .btn-primary {
-            background: #667eea;
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
         }
 
-        .btn-primary:hover {
-            background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        .btn-primary:hover:not(.btn-disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px -10px rgba(67, 97, 238, 0.4);
         }
 
         .btn-secondary {
-            background: #f093fb;
+            background: linear-gradient(135deg, var(--accent), #4895ef);
             color: white;
         }
 
-        .btn-secondary:hover {
-            background: #e074e3;
-            transform: translateY(-2px);
+        .btn-secondary:hover:not(.btn-disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px -10px rgba(76, 201, 240, 0.4);
         }
 
         .btn-danger {
-            background: #ff6b6b;
+            background: linear-gradient(135deg, var(--danger), #b5179e);
             color: white;
         }
 
-        .btn-danger:hover {
-            background: #ee5a5a;
-            transform: translateY(-2px);
+        .btn-danger:hover:not(.btn-disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px -10px rgba(247, 37, 133, 0.4);
         }
 
         .btn-disabled {
-            background: #ccc;
+            background: var(--gray);
             cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
         }
 
         .stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-top: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
         }
 
         .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
             color: white;
-            padding: 20px;
-            border-radius: 10px;
+            padding: 25px;
+            border-radius: 16px;
             text-align: center;
+            box-shadow: var(--shadow);
+            transition: transform 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-icon {
+            font-size: 2.5rem;
+            margin-bottom: 15px;
         }
 
         .stat-value {
-            font-size: 2em;
-            font-weight: bold;
+            font-size: 2.2rem;
+            font-weight: 800;
             margin: 10px 0;
         }
 
         .stat-label {
-            font-size: 0.9em;
+            font-size: 1rem;
             opacity: 0.9;
             text-transform: uppercase;
             letter-spacing: 1px;
+            font-weight: 600;
         }
 
         .status {
             text-align: center;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 10px;
+            padding: 18px;
+            margin: 25px 0;
+            border-radius: 12px;
             font-weight: 600;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
         }
 
         .status-info {
-            background: #e3f2fd;
-            color: #1976d2;
+            background: #dbeafe;
+            color: #1e40af;
         }
 
         .status-success {
-            background: #e8f5e9;
-            color: #388e3c;
+            background: #dcfce7;
+            color: #166534;
         }
 
         .status-warning {
-            background: #fff3e0;
-            color: #f57c00;
+            background: #fef3c7;
+            color: #92400e;
         }
 
         .status-error {
-            background: #ffebee;
-            color: #d32f2f;
+            background: #fee2e2;
+            color: #991b1b;
         }
 
         .instructions {
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 10px;
-            margin-top: 20px;
+            background: rgba(67, 97, 238, 0.05);
+            padding: 25px;
+            border-radius: 16px;
+            margin-top: 25px;
+            border-left: 4px solid var(--primary);
         }
 
         .instructions h3 {
-            color: #667eea;
-            margin-bottom: 10px;
+            color: var(--primary);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.4rem;
         }
 
         .instructions ul {
@@ -199,13 +263,56 @@
         }
 
         .instructions li {
-            margin: 8px 0;
-            line-height: 1.6;
+            margin: 12px 0;
+            line-height: 1.7;
+        }
+
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+        }
+
+        .feature-icon {
+            background: rgba(67, 97, 238, 0.1);
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--primary);
+            font-size: 1.2rem;
+        }
+
+        .feature-content h4 {
+            color: var(--dark);
+            margin-bottom: 5px;
+            font-size: 1.1rem;
+        }
+
+        .feature-content p {
+            color: var(--gray);
+            font-size: 0.95rem;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.9rem;
         }
 
         @media (max-width: 768px) {
             h1 {
-                font-size: 1.8em;
+                font-size: 2.2rem;
             }
 
             .container {
@@ -218,21 +325,67 @@
 
             button {
                 width: 100%;
+                padding: 16px;
+            }
+
+            .stats {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .stat-card {
+                padding: 20px 15px;
+            }
+
+            .stat-value {
+                font-size: 1.8rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            .subtitle {
+                font-size: 1rem;
             }
         }
 
         .hidden {
             display: none;
         }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(67, 97, 238, 0.4);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(67, 97, 238, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(67, 97, 238, 0);
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🚧 Pothole Detector</h1>
-        <p class="subtitle">Real-time pothole detection using your device camera</p>
+        <header>
+            <h1><i class="fas fa-road"></i> Pothole Detector</h1>
+            <p class="subtitle">AI-powered real-time pothole detection using your device camera</p>
+            <p class="tagline">Identify road hazards instantly for safer driving</p>
+        </header>
 
         <div id="status" class="status status-info">
-            📱 Click "Start Camera" to begin detection
+            <i class="fas fa-camera"></i> 📱 Click "Start Camera" to begin detection
         </div>
 
         <div class="video-container">
@@ -241,39 +394,81 @@
         </div>
 
         <div class="controls">
-            <button id="startBtn" class="btn-primary" onclick="startCamera()">Start Camera</button>
-            <button id="detectBtn" class="btn-secondary btn-disabled" onclick="toggleDetection()" disabled>Start Detection</button>
-            <button id="stopBtn" class="btn-danger btn-disabled" onclick="stopCamera()" disabled>Stop Camera</button>
+            <button id="startBtn" class="btn-primary pulse" onclick="startCamera()">
+                <i class="fas fa-video"></i> Start Camera
+            </button>
+            <button id="detectBtn" class="btn-secondary btn-disabled" onclick="toggleDetection()" disabled>
+                <i class="fas fa-search"></i> Start Detection
+            </button>
+            <button id="stopBtn" class="btn-danger btn-disabled" onclick="stopCamera()" disabled>
+                <i class="fas fa-stop"></i> Stop Camera
+            </button>
         </div>
 
         <div class="stats">
             <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-map-pin"></i>
+                </div>
                 <div class="stat-label">Potholes Detected</div>
                 <div class="stat-value" id="detectionCount">0</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">FPS</div>
-                <div class="stat-value" id="fps">0</div>
+                <div class="stat-icon">
+                    <i class="fas fa-tachometer-alt"></i>
+                </div>
+                <div class="stat-label">Processing Speed</div>
+                <div class="stat-value" id="fps">0 <span style="font-size: 1rem;">FPS</span></div>
             </div>
             <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-percentage"></i>
+                </div>
                 <div class="stat-label">Avg Confidence</div>
                 <div class="stat-value" id="confidence">0%</div>
             </div>
         </div>
 
         <div class="instructions">
-            <h3>📖 How to Use</h3>
-            <ul>
-                <li><strong>Start Camera:</strong> Allow camera access when prompted</li>
-                <li><strong>Start Detection:</strong> Begin real-time pothole detection</li>
-                <li><strong>View Results:</strong> Detected potholes appear with bounding boxes and confidence scores</li>
-                <li><strong>Works on:</strong> Laptops, phones, and tablets with camera access</li>
-            </ul>
-            <p style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd; color: #666;">
-                <strong>Note:</strong> This demo uses a base YOLOv8 model. For production use, replace with a model trained on actual pothole datasets from Roboflow or Kaggle.
+            <h3><i class="fas fa-info-circle"></i> How to Use This Application</h3>
+            <div class="feature-list">
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <i class="fas fa-camera"></i>
+                    </div>
+                    <div class="feature-content">
+                        <h4>Start Camera</h4>
+                        <p>Allow camera access when prompted. Works best with rear camera on mobile devices.</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <i class="fas fa-bullseye"></i>
+                    </div>
+                    <div class="feature-content">
+                        <h4>Begin Detection</h4>
+                        <p>Click "Start Detection" to activate real-time pothole identification algorithms.</p>
+                    </div>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon">
+                        <i class="fas fa-eye"></i>
+                    </div>
+                    <div class="feature-content">
+                        <h4>View Results</h4>
+                        <p>Detected potholes appear with colored bounding boxes and confidence percentages.</p>
+                    </div>
+                </div>
+            </div>
+            <p style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(0,0,0,0.1); color: var(--secondary); font-weight: 500;">
+                <i class="fas fa-lightbulb"></i> <strong>Pro Tip:</strong> Point your camera at road surfaces for best detection results. Works on laptops, phones, and tablets with camera access.
             </p>
         </div>
     </div>
+
+    <footer>
+        <p>Pothole Detector &copy; 2025 | AI-Powered Road Safety Solution</p>
+    </footer>
 
     <script src="/static/script.js"></script>
 </body>

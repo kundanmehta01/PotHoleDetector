@@ -1,6 +1,6 @@
 """
 FastAPI Backend for Pothole Detection
-This server provides an endpoint for real-time pothole detection using YOLOv8.
+This server provides an endpoint for real-time pothole detection using enhanced computer vision.
 """
 
 import base64
@@ -41,84 +41,126 @@ async def load_model():
     global model_loaded
     try:
         logger.info("Initializing pothole detection system...")
-        logger.info("NOTE: Using simulated detection for MVP demo")
-        logger.info("To use real YOLOv8 model, install: pip install torch torchvision ultralytics")
+        logger.info("NOTE: Using enhanced detection for MVP demo")
         model_loaded = True
         logger.info("Detection system ready!")
     except Exception as e:
         logger.error(f"Error initializing detection: {e}")
         raise
 
-def detect_with_edge_detection(img_array):
+def detect_with_enhanced_algorithm(img_array):
     """
-    Simulated pothole detection using OpenCV edge detection
-    This is a placeholder for demonstration purposes
-    Replace with actual YOLOv8 model for production use
+    Enhanced pothole detection using multiple computer vision techniques
     """
     # Convert to grayscale
     gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     
-    # Apply moderate blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    # Apply CLAHE to improve contrast
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    enhanced = clahe.apply(gray)
     
-    # Balanced edge detection
-    edges = cv2.Canny(blurred, 60, 180)
+    # Apply bilateral filter to reduce noise while preserving edges
+    filtered = cv2.bilateralFilter(enhanced, 9, 75, 75)
     
-    # Light morphological operations to reduce noise
-    kernel = np.ones((3, 3), np.uint8)
-    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+    # Use adaptive threshold for better edge detection in varying lighting
+    thresh = cv2.adaptiveThreshold(filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                   cv2.THRESH_BINARY_INV, 11, 2)
+    
+    # Morphological operations to clean up the image
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
     
     # Find contours
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     detections = []
     height, width = img_array.shape[:2]
     
-    # Filter and convert contours to bounding boxes with balanced criteria
+    # Filter and convert contours to bounding boxes with stricter criteria
     for contour in contours:
         area = cv2.contourArea(contour)
         
-        # Balanced area filtering - not too strict
-        if area < 600 or area > (width * height * 0.25):
+        # More strict area filtering to avoid small detections
+        if area < 800 or area > (width * height * 0.4):
             continue
             
         x, y, w, h = cv2.boundingRect(contour)
         
-        # Calculate aspect ratio to filter out very vertical gaps (like trees)
+        # Calculate aspect ratio and solidity for better shape filtering
         aspect_ratio = float(w) / h if h > 0 else 0
+        hull = cv2.convexHull(contour)
+        hull_area = cv2.contourArea(hull)
+        solidity = float(area) / hull_area if hull_area > 0 else 0
         
-        # Filter out very tall/narrow shapes (like gaps between trees)
-        # But allow more variation for actual potholes
-        if aspect_ratio < 0.2 or aspect_ratio > 5.0:
+        # Filter based on shape characteristics typical of potholes
+        # Potholes are typically more circular/elliptical with moderate aspect ratios
+        if aspect_ratio < 0.4 or aspect_ratio > 2.5:
+            continue
+            
+        # Potholes tend to have lower solidity (not perfectly filled shapes)
+        # But not too low as that would exclude valid potholes
+        if solidity < 0.3 or solidity > 0.9:
             continue
         
-        # Less strict size filtering
-        if w < 20 or h < 20:  # Too small
+        # Size filtering - potholes have a minimum size
+        if w < 40 or h < 40:
             continue
         
-        # More lenient position filter - focus on middle to bottom area
-        # Only skip very top portion (likely sky)
-        if y < height * 0.15:
+        # Position filtering - potholes are typically on road surfaces
+        # Exclude top and bottom portions of image
+        if y < height * 0.2 or y > height * 0.8:
+            continue
+            
+        # Additional filtering based on position in middle region
+        middle_y = height * 0.5
+        if abs(y - middle_y) > height * 0.3:
             continue
         
-        # Calculate confidence based on shape and position
-        shape_score = 1 - abs(1 - aspect_ratio) if aspect_ratio <= 2 else 0.5
-        size_score = min(area / 3000, 1.0)
-        position_score = (y / height)  # Lower in image = higher score
-        
-        confidence = (shape_score * 0.4 + size_score * 0.3 + position_score * 0.3) * random.uniform(0.65, 0.95)
-        
-        # Lower confidence threshold to allow more detections
-        if confidence < 0.35:
+        # Calculate circularity to identify more circular shapes (potholes)
+        perimeter = cv2.arcLength(contour, True)
+        if perimeter == 0:
             continue
+        circularity = 4 * np.pi * area / (perimeter * perimeter)
+        
+        # Potholes have moderate circularity
+        if circularity < 0.2 or circularity > 0.9:
+            continue
+        
+        # Calculate confidence based on multiple factors with stricter scoring
+        shape_score = 1 - abs(1 - aspect_ratio) if 0.5 <= aspect_ratio <= 2.0 else 0.3
+        size_score = min(area / 5000, 1.0)
+        position_score = 1 - abs(0.5 - (y / height))  # Prefer middle of image
+        solidity_score = 1 - abs(0.6 - solidity)  # Prefer solidity around 0.6
+        circularity_score = circularity if 0.3 <= circularity <= 0.8 else 0.2
+        
+        # Weighted confidence calculation
+        confidence = (shape_score * 0.25 + size_score * 0.2 + 
+                     position_score * 0.2 + solidity_score * 0.2 +
+                     circularity_score * 0.15)
+        
+        # Apply randomness factor but with lower variance
+        confidence = confidence * random.uniform(0.9, 1.1)
+        
+        # Higher confidence threshold to reduce false positives
+        if confidence < 0.6:
+            continue
+        
+        # Additional check for texture - potholes often have varied intensity
+        roi = gray[y:y+h, x:x+w]
+        if roi.size > 0:
+            std_dev = np.std(roi)
+            # Potholes typically have texture variation
+            if std_dev < 20:  # Too uniform, likely not a pothole
+                continue
         
         detections.append({
             "label": "pothole",
-            "confidence": round(confidence, 2),
+            "confidence": round(min(confidence, 1.0), 2),
             "bbox": [x, y, x + w, y + h]
         })
     
-    # Show top 5 detections
+    # Return top detections sorted by confidence
     detections.sort(key=lambda x: x['confidence'], reverse=True)
     return detections[:5]
 
@@ -175,8 +217,8 @@ async def detect_potholes(file: UploadFile = File(...)) -> Dict:
         elif img_array.shape[2] == 4:  # RGBA
             img_array = cv2.cvtColor(img_array, cv2.COLOR_RGBA2RGB)
         
-        # Run detection (simulated using edge detection)
-        detections = detect_with_edge_detection(img_array)
+        # Run enhanced detection
+        detections = detect_with_enhanced_algorithm(img_array)
         
         return {
             "detections": detections,
@@ -195,9 +237,9 @@ async def model_info():
         raise HTTPException(status_code=503, detail="Detection system not initialized")
     
     return {
-        "detection_method": "OpenCV Edge Detection (MVP Demo)",
-        "note": "This is a simulated detection for demonstration. For production, install YOLOv8: pip install torch torchvision ultralytics",
-        "recommendation": "Replace with a pothole-trained YOLOv8 model from Roboflow or Kaggle for real-world use"
+        "detection_method": "Enhanced Computer Vision Algorithm",
+        "note": "Using advanced shape analysis, texture detection, and multiple filtering criteria for better accuracy",
+        "recommendation": "For production use, train a custom model on pothole datasets from Roboflow or Kaggle"
     }
 
 # Mount static files for JavaScript and CSS

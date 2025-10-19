@@ -12,6 +12,8 @@ let fpsInterval = null;
 let frameCount = 0;
 let totalConfidence = 0;
 let detectionCount = 0;
+let lastFrameTime = 0;
+let frameTimes = [];
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
@@ -23,14 +25,36 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         updateStatus('Camera API not supported in this browser', 'error');
     }
+    
+    // Add animation to stats cards on load
+    animateStats();
 });
+
+/**
+ * Animate stats cards on page load
+ */
+function animateStats() {
+    const statCards = document.querySelectorAll('.stat-card');
+    statCards.forEach((card, index) => {
+        setTimeout(() => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            card.style.transition = 'all 0.5s ease';
+            
+            setTimeout(() => {
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, 100);
+        }, index * 200);
+    });
+}
 
 /**
  * Start the device camera
  */
 async function startCamera() {
     try {
-        updateStatus('Requesting camera access...', 'info');
+        updateStatus('<i class="fas fa-spinner fa-spin"></i> Requesting camera access...', 'info');
         
         // Request camera access
         // Use facingMode: environment for rear camera on mobile, user for front camera
@@ -51,7 +75,7 @@ async function startCamera() {
             canvas.height = video.videoHeight;
             
             isCameraActive = true;
-            updateStatus('Camera active - Ready for detection', 'success');
+            updateStatus('<i class="fas fa-check-circle"></i> Camera active - Ready for detection', 'success');
             
             // Update button states
             document.getElementById('startBtn').disabled = true;
@@ -60,11 +84,14 @@ async function startCamera() {
             document.getElementById('detectBtn').classList.remove('btn-disabled');
             document.getElementById('stopBtn').disabled = false;
             document.getElementById('stopBtn').classList.remove('btn-disabled');
+            
+            // Remove pulse animation from start button
+            document.getElementById('startBtn').classList.remove('pulse');
         };
         
     } catch (error) {
         console.error('Error accessing camera:', error);
-        updateStatus(`Camera access denied: ${error.message}`, 'error');
+        updateStatus(`<i class="fas fa-exclamation-triangle"></i> Camera access denied: ${error.message}`, 'error');
     }
 }
 
@@ -93,8 +120,11 @@ function stopCamera() {
     document.getElementById('stopBtn').disabled = true;
     document.getElementById('stopBtn').classList.add('btn-disabled');
     
-    updateStatus('Camera stopped', 'info');
+    updateStatus('<i class="fas fa-camera"></i> Camera stopped - Click "Start Camera" to begin', 'info');
     resetStats();
+    
+    // Add pulse animation back to start button
+    document.getElementById('startBtn').classList.add('pulse');
 }
 
 /**
@@ -107,22 +137,25 @@ function toggleDetection() {
     const detectBtn = document.getElementById('detectBtn');
     
     if (isDetecting) {
-        detectBtn.textContent = 'Stop Detection';
+        detectBtn.innerHTML = '<i class="fas fa-stop-circle"></i> Stop Detection';
         detectBtn.classList.remove('btn-secondary');
         detectBtn.classList.add('btn-danger');
-        updateStatus('Detection active - Processing frames...', 'success');
+        updateStatus('<i class="fas fa-sync fa-spin"></i> Detection active - Processing frames...', 'success');
         
-        // Start detection loop (3 FPS for better performance)
+        // Start detection loop (3 FPS for better accuracy)
         detectionInterval = setInterval(captureAndDetect, 333);
         
         // Start FPS counter
         fpsInterval = setInterval(updateFPS, 1000);
         
+        // Add pulse animation to detect button
+        detectBtn.classList.add('pulse');
+        
     } else {
-        detectBtn.textContent = 'Start Detection';
+        detectBtn.innerHTML = '<i class="fas fa-search"></i> Start Detection';
         detectBtn.classList.remove('btn-danger');
         detectBtn.classList.add('btn-secondary');
-        updateStatus('Detection paused', 'warning');
+        updateStatus('<i class="fas fa-pause-circle"></i> Detection paused', 'warning');
         
         // Stop detection loop
         clearInterval(detectionInterval);
@@ -130,6 +163,9 @@ function toggleDetection() {
         
         // Clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Remove pulse animation
+        detectBtn.classList.remove('pulse');
     }
 }
 
@@ -140,6 +176,14 @@ async function captureAndDetect() {
     if (!isCameraActive || !isDetecting) return;
     
     try {
+        // Record frame time for FPS calculation
+        const now = performance.now();
+        if (lastFrameTime) {
+            frameTimes.push(now - lastFrameTime);
+            if (frameTimes.length > 10) frameTimes.shift(); // Keep last 10 frame times
+        }
+        lastFrameTime = now;
+        
         // Create a temporary canvas to capture the current frame
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = video.videoWidth;
@@ -164,8 +208,8 @@ async function captureAndDetect() {
             
             const data = await response.json();
             
-            // Draw detections
-            drawDetections(data.detections);
+            // Draw detections with enhanced visualization
+            drawEnhancedDetections(data.detections);
             
             // Update stats
             frameCount++;
@@ -179,14 +223,14 @@ async function captureAndDetect() {
         
     } catch (error) {
         console.error('Detection error:', error);
-        updateStatus(`Detection error: ${error.message}`, 'error');
+        updateStatus(`<i class="fas fa-exclamation-circle"></i> Detection error: ${error.message}`, 'error');
     }
 }
 
 /**
- * Draw bounding boxes and labels on canvas
+ * Draw enhanced bounding boxes and labels on canvas
  */
-function drawDetections(detections) {
+function drawEnhancedDetections(detections) {
     // Clear previous drawings
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
@@ -197,39 +241,143 @@ function drawDetections(detections) {
         const confidence = detection.confidence;
         const label = detection.label;
         
-        // Draw bounding box
-        ctx.strokeStyle = '#ff6b6b';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        // Calculate box dimensions
+        const width = x2 - x1;
+        const height = y2 - y1;
         
-        // Draw label background
+        // Draw semi-transparent fill
+        ctx.fillStyle = 'rgba(247, 37, 133, 0.2)';
+        ctx.fillRect(x1, y1, width, height);
+        
+        // Draw bounding box with gradient
+        const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
+        gradient.addColorStop(0, '#f72585');
+        gradient.addColorStop(1, '#4361ee');
+        
+        ctx.strokeStyle = gradient;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x1, y1, width, height);
+        
+        // Draw corner accents for a more modern look
+        const cornerLength = Math.min(width, height) * 0.2;
+        ctx.strokeStyle = '#4cc9f0';
+        ctx.lineWidth = 4;
+        
+        // Top-left corner
+        ctx.beginPath();
+        ctx.moveTo(x1, y1 + cornerLength);
+        ctx.lineTo(x1, y1);
+        ctx.lineTo(x1 + cornerLength, y1);
+        ctx.stroke();
+        
+        // Top-right corner
+        ctx.beginPath();
+        ctx.moveTo(x2 - cornerLength, y1);
+        ctx.lineTo(x2, y1);
+        ctx.lineTo(x2, y1 + cornerLength);
+        ctx.stroke();
+        
+        // Bottom-left corner
+        ctx.beginPath();
+        ctx.moveTo(x1, y2 - cornerLength);
+        ctx.lineTo(x1, y2);
+        ctx.lineTo(x1 + cornerLength, y2);
+        ctx.stroke();
+        
+        // Bottom-right corner
+        ctx.beginPath();
+        ctx.moveTo(x2 - cornerLength, y2);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x2, y2 - cornerLength);
+        ctx.stroke();
+        
+        // Draw label background with rounded corners
         const text = `${label} ${(confidence * 100).toFixed(0)}%`;
-        ctx.font = 'bold 16px Arial';
+        ctx.font = 'bold 16px Inter, sans-serif';
         const textWidth = ctx.measureText(text).width;
         
-        ctx.fillStyle = '#ff6b6b';
-        ctx.fillRect(x1, y1 - 30, textWidth + 10, 25);
+        // Draw pill-shaped label background
+        const labelX = x1 + 5;
+        const labelY = y1 - 35;
+        const labelWidth = textWidth + 20;
+        const labelHeight = 30;
+        const radius = 15;
+        
+        // Draw rounded rectangle
+        ctx.beginPath();
+        ctx.moveTo(labelX + radius, labelY);
+        ctx.lineTo(labelX + labelWidth - radius, labelY);
+        ctx.quadraticCurveTo(labelX + labelWidth, labelY, labelX + labelWidth, labelY + radius);
+        ctx.lineTo(labelX + labelWidth, labelY + labelHeight - radius);
+        ctx.quadraticCurveTo(labelX + labelWidth, labelY + labelHeight, labelX + labelWidth - radius, labelY + labelHeight);
+        ctx.lineTo(labelX + radius, labelY + labelHeight);
+        ctx.quadraticCurveTo(labelX, labelY + labelHeight, labelX, labelY + labelHeight - radius);
+        ctx.lineTo(labelX, labelY + radius);
+        ctx.quadraticCurveTo(labelX, labelY, labelX + radius, labelY);
+        ctx.closePath();
+        
+        // Fill with gradient
+        const labelGradient = ctx.createLinearGradient(labelX, labelY, labelX, labelY + labelHeight);
+        labelGradient.addColorStop(0, '#4361ee');
+        labelGradient.addColorStop(1, '#3a0ca3');
+        ctx.fillStyle = labelGradient;
+        ctx.fill();
         
         // Draw label text
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(text, x1 + 5, y1 - 10);
+        ctx.fillText(text, labelX + 10, labelY + 20);
+        
+        // Draw confidence meter
+        if (confidence > 0.5) {
+            const meterWidth = width * 0.6;
+            const meterHeight = 6;
+            const meterX = x1 + (width - meterWidth) / 2;
+            const meterY = y2 + 10;
+            
+            // Background
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(meterX, meterY, meterWidth, meterHeight);
+            
+            // Fill based on confidence
+            let meterColor;
+            if (confidence > 0.8) {
+                meterColor = '#4ade80'; // Green
+            } else if (confidence > 0.6) {
+                meterColor = '#facc15'; // Yellow
+            } else {
+                meterColor = '#f72585'; // Red
+            }
+            
+            ctx.fillStyle = meterColor;
+            ctx.fillRect(meterX, meterY, meterWidth * confidence, meterHeight);
+        }
     });
 }
 
 /**
- * Update FPS counter
+ * Update FPS counter with smoother calculation
  */
 function updateFPS() {
-    document.getElementById('fps').textContent = frameCount;
+    // Calculate average FPS from recent frame times
+    if (frameTimes.length > 0) {
+        const avgFrameTime = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length;
+        const fps = Math.round(1000 / avgFrameTime);
+        document.getElementById('fps').innerHTML = `${fps} <span style="font-size: 1rem;">FPS</span>`;
+    } else {
+        document.getElementById('fps').innerHTML = `${frameCount} <span style="font-size: 1rem;">FPS</span>`;
+    }
+    
     frameCount = 0;
+    frameTimes = [];
+    lastFrameTime = 0;
 }
 
 /**
- * Update status message
+ * Update status message with icon support
  */
 function updateStatus(message, type = 'info') {
     const statusEl = document.getElementById('status');
-    statusEl.textContent = message;
+    statusEl.innerHTML = message;
     statusEl.className = `status status-${type}`;
 }
 
@@ -240,19 +388,46 @@ function resetStats() {
     frameCount = 0;
     detectionCount = 0;
     totalConfidence = 0;
+    frameTimes = [];
+    lastFrameTime = 0;
     
     document.getElementById('detectionCount').textContent = '0';
-    document.getElementById('fps').textContent = '0';
+    document.getElementById('fps').innerHTML = '0 <span style="font-size: 1rem;">FPS</span>';
     document.getElementById('confidence').textContent = '0%';
 }
 
 /**
- * Update statistics display
+ * Update statistics display with animation
  */
 setInterval(() => {
     if (isDetecting) {
-        document.getElementById('detectionCount').textContent = detectionCount;
+        // Animate detection count change
+        const currentCountEl = document.getElementById('detectionCount');
+        const currentValue = parseInt(currentCountEl.textContent);
+        if (currentValue !== detectionCount) {
+            currentCountEl.style.transform = 'scale(1.2)';
+            setTimeout(() => {
+                currentCountEl.textContent = detectionCount;
+                currentCountEl.style.transform = 'scale(1)';
+            }, 150);
+        }
+        
+        // Update confidence
         document.getElementById('confidence').textContent = 
             totalConfidence > 0 ? `${(totalConfidence * 100).toFixed(0)}%` : '0%';
     }
 }, 500);
+
+// Add keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    // Spacebar to toggle detection
+    if (e.code === 'Space' && isCameraActive) {
+        e.preventDefault();
+        toggleDetection();
+    }
+    
+    // Escape to stop camera
+    if (e.code === 'Escape' && isCameraActive) {
+        stopCamera();
+    }
+});
