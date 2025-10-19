@@ -54,34 +54,89 @@ def detect_road_region(img_array):
     # Convert to HSV for better color segmentation
     hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
     
-    # Define range for typical road colors (grays, browns, blacks)
-    # These values might need adjustment based on lighting conditions
-    lower_road = np.array([0, 0, 30])
-    upper_road = np.array([180, 50, 200])
+    # Define multiple ranges for typical road colors (grays, browns, blacks, tars)
+    # Dark grays and blacks
+    lower_road1 = np.array([0, 0, 0])
+    upper_road1 = np.array([180, 255, 50])
     
-    # Create mask for road-like colors
-    road_mask = cv2.inRange(hsv, lower_road, upper_road)
+    # Medium grays
+    lower_road2 = np.array([0, 0, 50])
+    upper_road2 = np.array([180, 50, 150])
+    
+    # Brown/ta colors
+    lower_road3 = np.array([10, 50, 50])
+    upper_road3 = np.array([30, 255, 200])
+    
+    # Create masks for road-like colors
+    road_mask1 = cv2.inRange(hsv, lower_road1, upper_road1)
+    road_mask2 = cv2.inRange(hsv, lower_road2, upper_road2)
+    road_mask3 = cv2.inRange(hsv, lower_road3, upper_road3)
+    
+    # Combine masks
+    road_mask = cv2.bitwise_or(road_mask1, road_mask2)
+    road_mask = cv2.bitwise_or(road_mask, road_mask3)
     
     # Apply morphological operations to clean up the mask
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     road_mask = cv2.morphologyEx(road_mask, cv2.MORPH_CLOSE, kernel)
     road_mask = cv2.morphologyEx(road_mask, cv2.MORPH_OPEN, kernel)
     
-    # Find the largest connected component (likely the road)
+    # Find connected components
     contours, _ = cv2.findContours(road_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     if not contours:
         return None
     
-    # Find the largest contour by area
-    largest_contour = max(contours, key=cv2.contourArea)
+    # Find all contours that are large enough to be road regions
+    road_contours = []
+    min_area = img_array.shape[0] * img_array.shape[1] * 0.1  # 10% of image area
     
-    # Only consider it a road if it's large enough
-    if cv2.contourArea(largest_contour) < img_array.shape[0] * img_array.shape[1] * 0.3:
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area >= min_area:
+            road_contours.append(contour)
+    
+    if not road_contours:
+        # If no large contours, try with a smaller threshold
+        min_area = img_array.shape[0] * img_array.shape[1] * 0.05  # 5% of image area
+        for contour in contours:
+            area = cv2.contourArea(contour)
+            if area >= min_area:
+                road_contours.append(contour)
+    
+    if not road_contours:
         return None
     
-    # Get bounding rectangle of the road region
-    x, y, w, h = cv2.boundingRect(largest_contour)
+    # Combine all valid road contours into one region
+    # Create a mask for all road regions
+    combined_mask = np.zeros_like(road_mask)
+    for contour in road_contours:
+        cv2.fillPoly(combined_mask, [contour], 255)
+    
+    # Find bounding rectangle of the combined region
+    combined_contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not combined_contours:
+        return None
+        
+    # Get bounding rectangle that covers all road regions
+    x, y, w, h = cv2.boundingRect(combined_contours[0])
+    for contour in combined_contours[1:]:
+        x1, y1, w1, h1 = cv2.boundingRect(contour)
+        # Update bounding rectangle to include this contour
+        x_min = min(x, x1)
+        y_min = min(y, y1)
+        x_max = max(x + w, x1 + w1)
+        y_max = max(y + h, y1 + h1)
+        x, y = x_min, y_min
+        w, h = x_max - x_min, y_max - y_min
+    
+    # Add some padding to the road region
+    padding_x = int(w * 0.1)
+    padding_y = int(h * 0.1)
+    x = max(0, x - padding_x)
+    y = max(0, y - padding_y)
+    w = min(img_array.shape[1] - x, w + 2 * padding_x)
+    h = min(img_array.shape[0] - y, h + 2 * padding_y)
     
     # Return the road region coordinates
     return (x, y, x + w, y + h)
@@ -94,9 +149,10 @@ def detect_with_optimized_algorithm(img_array, road_detection=False):
     road_region = None
     if road_detection:
         road_region = detect_road_region(img_array)
-        # If no road is detected, return empty detections
+        # If no road is detected, fall back to normal detection but with a warning
         if road_region is None:
-            return []
+            # Still process the image but with less restrictive parameters
+            logger.info("No road region detected, using fallback detection parameters")
     
     # Resize image for faster processing while maintaining aspect ratio
     height, width = img_array.shape[:2]
@@ -130,7 +186,7 @@ def detect_with_optimized_algorithm(img_array, road_detection=False):
     blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
     
     # Edge detection with optimized parameters
-    edges = cv2.Canny(blurred, 50, 150)
+    edges = cv2.Canny(blurred, 40, 140)  # Slightly lower thresholds for better sensitivity
     
     # If road region is specified, mask edges outside this region
     if road_region and road_detection:
@@ -154,43 +210,62 @@ def detect_with_optimized_algorithm(img_array, road_detection=False):
     for contour in contours:
         area = cv2.contourArea(contour)
         
-        # Adjusted area filtering for better balance
-        if area < 400 or area > (img_array.shape[1] * img_array.shape[0] * 0.3):
+        # Adjusted area filtering for better balance (slightly more permissive)
+        min_area = 300 if road_detection and road_region else 250
+        max_area_ratio = 0.35 if road_detection and road_region else 0.4
+        if area < min_area or area > (img_array.shape[1] * img_array.shape[0] * max_area_ratio):
             continue
             
         x, y, w, h = cv2.boundingRect(contour)
         
-        # If road detection is enabled, check if pothole is within road region
+        # If road detection is enabled and road region exists, check if pothole is within road region
         if road_region and road_detection:
             rx1, ry1, rx2, ry2 = road_region
-            # Check if bounding box is within road region
-            if x < rx1 or y < ry1 or (x + w) > rx2 or (y + h) > ry2:
+            # Check if bounding box overlaps significantly with road region
+            overlap_x1 = max(x, rx1)
+            overlap_y1 = max(y, ry1)
+            overlap_x2 = min(x + w, rx2)
+            overlap_y2 = min(y + h, ry2)
+            
+            # If there's no overlap or very small overlap, skip
+            if overlap_x1 >= overlap_x2 or overlap_y1 >= overlap_y2:
+                continue
+                
+            # Calculate overlap ratio
+            overlap_area = (overlap_x2 - overlap_x1) * (overlap_y2 - overlap_y1)
+            box_area = w * h
+            if box_area > 0 and (overlap_area / box_area) < 0.3:  # At least 30% overlap
                 continue
         
         # Calculate aspect ratio
         aspect_ratio = float(w) / h if h > 0 else 0
         
         # Filter based on shape characteristics with more lenient criteria
-        if aspect_ratio < 0.3 or aspect_ratio > 4.0:
+        if aspect_ratio < 0.25 or aspect_ratio > 5.0:  # Wider range for better detection
             continue
         
-        # Size filtering
-        if w < 30 or h < 30:
+        # Size filtering (slightly more permissive)
+        min_size = 25 if road_detection and road_region else 20
+        if w < min_size or h < min_size:
             continue
         
-        # Position filtering - focus on likely road area
-        if y < img_array.shape[0] * 0.1 or y > img_array.shape[0] * 0.9:
-            continue
+        # Position filtering - focus on likely road area but be more permissive
+        if y < img_array.shape[0] * 0.05 or y > img_array.shape[0] * 0.95:
+            # Still apply some filtering but be more lenient
+            if road_detection and road_region:
+                # If we have road detection, be stricter about position
+                continue
         
         # Calculate confidence with balanced scoring
-        shape_score = 1 - abs(1 - aspect_ratio) if aspect_ratio <= 2 else 0.5
-        size_score = min(area / 2000, 1.0)
-        position_score = (y / img_array.shape[0])  # Lower in image = higher score
+        shape_score = 1 - abs(1 - aspect_ratio) if 0.5 <= aspect_ratio <= 2.0 else 0.5
+        size_score = min(area / 1500, 1.0)  # Lower denominator for better sensitivity
+        position_score = 1 - abs(0.5 - (y / img_array.shape[0]))  # Prefer middle of image
         
-        confidence = (shape_score * 0.4 + size_score * 0.3 + position_score * 0.3) * random.uniform(0.8, 1.0)
+        confidence = (shape_score * 0.4 + size_score * 0.35 + position_score * 0.25) * random.uniform(0.85, 1.0)
         
-        # Lowered threshold to detect more potholes
-        if confidence < 0.4:
+        # Lowered threshold to detect more potholes, but higher when road detection is enabled
+        min_confidence = 0.35 if road_detection and road_region else 0.3
+        if confidence < min_confidence:
             continue
         
         # Scale coordinates back to original image size
@@ -205,7 +280,7 @@ def detect_with_optimized_algorithm(img_array, road_detection=False):
     
     # Return top detections sorted by confidence
     detections.sort(key=lambda x: x['confidence'], reverse=True)
-    return detections[:8]  # Increased from 5 to 8 to detect more potholes
+    return detections[:10]  # Increased from 8 to 10 to detect more potholes
 
 @app.get("/", response_class=HTMLResponse)
 async def root():

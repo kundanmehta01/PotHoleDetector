@@ -238,7 +238,7 @@ async function captureAndDetect() {
                 const data = await response.json();
                 
                 // Draw detections with enhanced visualization
-                drawEnhancedDetections(data.detections);
+                drawEnhancedDetections(data.detections, data.road_detection_enabled);
                 
                 // Update stats
                 frameCount++;
@@ -246,6 +246,9 @@ async function captureAndDetect() {
                     detectionCount = data.count;
                     const avgConf = data.detections.reduce((sum, det) => sum + det.confidence, 0) / data.count;
                     totalConfidence = avgConf;
+                } else if (data.road_detection_enabled && data.detections.length === 0) {
+                    // Show a message when road detection is enabled but no road is detected
+                    showNoRoadDetectedMessage();
                 }
                 
             } catch (error) {
@@ -268,11 +271,17 @@ async function captureAndDetect() {
 /**
  * Draw enhanced bounding boxes and labels on canvas
  */
-function drawEnhancedDetections(detections) {
+function drawEnhancedDetections(detections, roadDetectionEnabled = false) {
     // Clear previous drawings
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    if (!detections || detections.length === 0) return;
+    // If no detections and road detection is enabled, show a message
+    if (!detections || detections.length === 0) {
+        if (roadDetectionEnabled) {
+            showNoRoadDetectedMessage();
+        }
+        return;
+    }
     
     detections.forEach(detection => {
         const [x1, y1, x2, y2] = detection.bbox;
@@ -390,6 +399,31 @@ function drawEnhancedDetections(detections) {
             ctx.fillRect(meterX, meterY, meterWidth * confidence, meterHeight);
         }
     });
+}
+
+/**
+ * Show a message when no road is detected in road detection mode
+ */
+function showNoRoadDetectedMessage() {
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw a semi-transparent overlay
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw warning message
+    ctx.font = 'bold 24px Inter, sans-serif';
+    ctx.fillStyle = '#facc15';
+    ctx.textAlign = 'center';
+    ctx.fillText('No Road Detected', canvas.width / 2, canvas.height / 2 - 20);
+    
+    ctx.font = '16px Inter, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('Try pointing the camera at a road surface', canvas.width / 2, canvas.height / 2 + 20);
+    ctx.fillText('or switch to normal detection mode', canvas.width / 2, canvas.height / 2 + 50);
+    
+    ctx.textAlign = 'left'; // Reset text alignment
 }
 
 /**
